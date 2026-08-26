@@ -25,8 +25,9 @@ import React, { useState, useRef, useEffect, useCallback } from "react";
 import {
   X, Mail, Instagram, Phone, MessageCircle, ChevronLeft, ChevronRight,
   Shuffle, Download, Camera, Upload, ExternalLink, Copy, Check, Sparkles,
-  RotateCcw, Trash2,
+  RotateCcw, Trash2, Play, Pause,
 } from "lucide-react";
+import TRACKS from "./playlist-tracks.json";
 
 /* ============================== DESIGN TOKENS ============================ */
 const T = {
@@ -1038,43 +1039,136 @@ function BouquetModal({ open, onClose }) {
 }
 
 /* =========================================================================
-   MODAL 3 — THE RECORD PLAYER (Apple Music)
+   MODAL 3 — THE RECORD PLAYER (real shuffle, 30s previews via iTunes)
    ========================================================================= */
 const PLAYLIST_URL = "https://music.apple.com/th/playlist/feeling-like-a-no-1/pl.u-MDAWWE6CWa6kE1g";
-const PLAYLIST_EMBED = "https://embed.music.apple.com/th/playlist/feeling-like-a-no-1/pl.u-MDAWWE6CWa6kE1g";
+
+function artworkSrc(track, size = 300) {
+  return track.artwork.replace("{w}", size).replace("{h}", size).replace("{f}", "jpg");
+}
+
+function pickRandomTrack(excludeId) {
+  if (TRACKS.length <= 1) return TRACKS[0];
+  let t;
+  do { t = TRACKS[Math.floor(Math.random() * TRACKS.length)]; } while (t.id === excludeId);
+  return t;
+}
+
+async function fetchPreview(track) {
+  for (const country of ["th", "us"]) {
+    try {
+      const res = await fetch(`https://itunes.apple.com/lookup?id=${track.id}&country=${country}`);
+      const json = await res.json();
+      const hit = json.results && json.results[0];
+      if (hit && hit.previewUrl) return hit.previewUrl;
+    } catch {
+      /* try the next storefront */
+    }
+  }
+  return null;
+}
 
 function VinylModal({ open, onClose }) {
+  const [track, setTrack] = useState(null);
+  const [status, setStatus] = useState("idle"); // idle · loading · playing · paused · no-preview
+  const audioRef = useRef(null);
+  const requestRef = useRef(0);
+
+  const stop = useCallback(() => {
+    const a = audioRef.current;
+    if (a) { a.pause(); a.removeAttribute("src"); }
+  }, []);
+
+  const shuffle = useCallback(() => {
+    const myRequest = ++requestRef.current;
+    const next = pickRandomTrack(track?.id);
+    stop();
+    setTrack(next);
+    setStatus("loading");
+    fetchPreview(next).then((previewUrl) => {
+      if (myRequest !== requestRef.current) return; // superseded by a newer shuffle
+      if (!previewUrl) { setStatus("no-preview"); return; }
+      const a = audioRef.current;
+      if (!a) return;
+      a.src = previewUrl;
+      a.play().then(
+        () => { if (myRequest === requestRef.current) setStatus("playing"); },
+        () => { if (myRequest === requestRef.current) setStatus("paused"); }
+      );
+    });
+  }, [track, stop]);
+
+  useEffect(() => {
+    if (open) shuffle();
+    else { stop(); setStatus("idle"); setTrack(null); }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open]);
+
+  const togglePlay = () => {
+    const a = audioRef.current;
+    if (!a || !track || status === "loading") return;
+    if (status === "playing") { a.pause(); setStatus("paused"); }
+    else if (status === "paused") a.play().then(() => setStatus("playing"), () => {});
+    else if (status === "no-preview") shuffle();
+  };
+
   return (
-    <Modal open={open} onClose={onClose} maxWidth={760}>
-      <ModalHeader eyebrow="Living room · the record player" title="Feeling Like a No.1" sub="The playlist that's usually on while I work. Press play." bg={T.butter} />
+    <Modal open={open} onClose={onClose} maxWidth={620}>
+      <ModalHeader eyebrow="Living room · the record player" title="Shuffle my playlist" sub="A random pull from my 185-song playlist — real 30-second previews, playing right here." bg={T.butter} />
       <div className="dh-scroll flex-1 overflow-y-auto p-5 sm:p-7">
         <div className="flex flex-col items-center gap-5">
-          {/* spinning disc */}
+          {/* spinning disc, with the track's own artwork as the label */}
           <div style={{ width: 172 }}>
-            <svg viewBox="0 0 200 200" className="w-full h-auto dh-vinyl" style={{ filter: "drop-shadow(0 8px 0 rgba(110,78,57,.18))" }}>
+            <svg viewBox="0 0 200 200" className={`w-full h-auto ${status === "playing" ? "dh-vinyl" : ""}`} style={{ filter: "drop-shadow(0 8px 0 rgba(110,78,57,.18))" }}>
               <circle cx="100" cy="100" r="94" fill={T.ink} stroke={T.cocoa} strokeWidth="5" />
               {[78, 66, 54].map((r) => <circle key={r} cx="100" cy="100" r={r} fill="none" stroke="rgba(255,255,255,.16)" strokeWidth="2" />)}
-              <circle cx="100" cy="100" r="40" fill={T.rose} stroke={T.cocoa} strokeWidth="5" />
+              {track ? (
+                <>
+                  <clipPath id="vinyl-art-clip"><circle cx="100" cy="100" r="38" /></clipPath>
+                  <image href={artworkSrc(track, 120)} x="62" y="62" width="76" height="76" clipPath="url(#vinyl-art-clip)" preserveAspectRatio="xMidYMid slice" />
+                </>
+              ) : (
+                <circle cx="100" cy="100" r="40" fill={T.rose} stroke={T.cocoa} strokeWidth="5" />
+              )}
               <circle cx="100" cy="100" r="7" fill={T.paper} stroke={T.cocoa} strokeWidth="4" />
-              <path d="M100 68a32 32 0 0132 32" stroke={T.paper} strokeWidth="4" fill="none" strokeLinecap="round" />
             </svg>
           </div>
 
-          {/* Apple Music embed. If the player doesn't load inside this frame,
-              the button below opens the playlist in the Apple Music app/site. */}
-          <iframe
-            title="Feeling Like a No.1 on Apple Music"
-            allow="autoplay *; encrypted-media *; fullscreen *; clipboard-write"
-            frameBorder="0"
-            height="450"
-            style={{ width: "100%", maxWidth: 660, overflow: "hidden", borderRadius: 14, border: `3px solid ${T.cocoa}`, background: T.cream }}
-            sandbox="allow-forms allow-popups allow-same-origin allow-scripts allow-storage-access-by-user-activation allow-top-navigation-by-user-activation"
-            src={PLAYLIST_EMBED}
-          />
+          <audio ref={audioRef} onEnded={shuffle} onError={() => setStatus("no-preview")} />
 
-          <Button as="a" href={PLAYLIST_URL} tone={T.blush}>
-            <ExternalLink size={15} strokeWidth={2.6} /> Listen on Apple Music
-          </Button>
+          <div className="w-full text-center" style={{ minHeight: 72 }}>
+            {track ? (
+              <>
+                <div style={{ ...serif, fontSize: 19, fontWeight: 700, color: T.ink, lineHeight: 1.2 }}>{track.title}</div>
+                <div style={{ ...sans, fontSize: 13, color: T.cocoa, marginTop: 2 }}>{track.artists}</div>
+                <div className="truncate" style={{ ...sans, fontSize: 11.5, color: T.cocoa, opacity: 0.65, marginTop: 1 }}>{track.album}</div>
+              </>
+            ) : (
+              <div style={{ ...sans, fontSize: 13, color: T.cocoa }}>Shuffling…</div>
+            )}
+            {status === "no-preview" && (
+              <p className="mt-2 inline-block" style={{ ...sans, fontSize: 12, color: T.cocoa, background: T.cream, border: `2px solid ${T.cocoa}`, borderRadius: 10, padding: "6px 10px" }}>
+                No 30-second preview for this one — the full song's on Apple Music, or shuffle again.
+              </p>
+            )}
+          </div>
+
+          <div className="flex flex-wrap justify-center gap-2">
+            <Button onClick={togglePlay} tone={T.rose}>
+              {status === "playing" ? <Pause size={15} strokeWidth={2.6} /> : <Play size={15} strokeWidth={2.6} />}
+              {status === "playing" ? "Pause" : "Play"}
+            </Button>
+            <Button onClick={shuffle} tone={T.blush}><Shuffle size={15} strokeWidth={2.6} /> Shuffle</Button>
+            {track && (
+              <Button as="a" href={track.url} tone={T.cream}>
+                <ExternalLink size={15} strokeWidth={2.6} /> Full song on Apple Music
+              </Button>
+            )}
+          </div>
+
+          <a href={PLAYLIST_URL} target="_blank" rel="noreferrer" style={{ ...sans, fontSize: 11.5, color: T.cocoa, opacity: 0.7, textDecoration: "underline" }}>
+            or browse the whole playlist on Apple Music
+          </a>
         </div>
       </div>
     </Modal>
