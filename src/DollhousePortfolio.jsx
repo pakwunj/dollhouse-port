@@ -1114,7 +1114,7 @@ function VinylModal({ open, onClose }) {
 
   return (
     <Modal open={open} onClose={onClose} maxWidth={620}>
-      <ModalHeader eyebrow="Living room · the record player" title="Shuffle my playlist" sub="A random pull from my 185-song playlist — real 30-second previews, playing right here." bg={T.butter} />
+      <ModalHeader eyebrow="Living room · the record player" title="Shuffle my playlist" sub="A shuffled sample from my full 185-song playlist — real 30-second previews, playing right here." bg={T.butter} />
       <div className="dh-scroll flex-1 overflow-y-auto p-5 sm:p-7">
         <div className="flex flex-col items-center gap-5">
           {/* spinning disc, with the track's own artwork as the label */}
